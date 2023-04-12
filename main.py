@@ -9,6 +9,7 @@ SAN = [
 ]
 
 
+
 def parse_sslyze(j):
     print("Start parsing...")
     for i in j['server_scan_results']:
