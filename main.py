@@ -1,28 +1,50 @@
 import sys
 import json
 import argparse
+from database import model
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 
-SAN = [
-    'dns_names',
-    'ip_addresses'
-]
+engine = create_engine("sqlite:///cloud.db", echo=True)
 
-
+model.Base.metadata.create_all(engine)
 
 def parse_sslyze(j):
     print("Start parsing...")
     for i in j['server_scan_results']:
+
+
+        with Session(engine) as session:
+            host = model.Host(
+                name=i['server_location']['hostname']
+            )
+        session.commit
+        session.close            
         # original Hostname / IP
-        print(i['server_location']['hostname'])
-        print(i['server_location']['ip_address'])
-        print(i['server_location']['port'])
+        # print(i['server_location']['hostname'])
+        # print(i['server_location']['ip_address'])
+        # print(i['server_location']['port'])
 
-        # Subject Alternative names
-        j_SAN = i['scan_result']['certificate_info']['result']['certificate_deployments'][0]['path_validation_results'][0]['verified_certificate_chain'][0]['subject_alternative_name']
+       
 
-        print(j_SAN['dns_names'])
-        print(j_SAN['ip_addresses'])
+        if i['connectivity_status']=="COMPLETED":
+            print ('{h} - {ip}:{p}'.format(h=i['server_location']['hostname'], ip=i['server_location']['ip_address'], p=i['server_location']['port']))            
+
+            # Subject Alternative names
+            # j_SAN = i['scan_result']['certificate_info']['result']['certificate_deployments'][0]['path_validation_results'][0]['verified_certificate_chain'][0]['subject_alternative_name']
+
+            for a in i['scan_result']['certificate_info']['result']['certificate_deployments']:
+                #for b in a ['path_validation_results']:
+                    for c in a['received_certificate_chain']: 
+                        for d in c['subject_alternative_name']['dns_names']:
+                            print ('*  {dns}'.format(dns=d))
+                        for e in c['subject_alternative_name']['ip_addresses']:
+                            print ('*  {ip}'.format(ip=e))
+
+            # print(j_SAN['ip_addresses'])
+
 
 
 if __name__ == "__main__":

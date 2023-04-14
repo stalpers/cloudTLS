@@ -31,3 +31,10 @@ share/python-wheels/
 *.egg
 MANIFEST
 /testing/
+venv/
+bin/
+lib64/
+include/
+cloud.db
+pyvenv.cfg
+tls_gcp.json

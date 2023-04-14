@@ -24,7 +24,7 @@ export AZURE_URL=https://download.microsoft.com/download/7/1/D/71D86715-5596-452
 export OCI_URL=https://docs.oracle.com/en-us/iaas/tools/public_ip_ranges.json
 export GCP_URL=https://www.gstatic.com/ipranges/goog.json
 
-mkdir $IP_DIR
+mkdir $IP_DIR 2>/dev/null
 
 
 
@@ -46,15 +46,15 @@ else
 fi
 
 echo "[SCAN] Parsing"
-cat $IP_DIR/$AWS_IP.$JS | jq '.prefixes[] | .ip_prefix' | sed -e 's/"//g' > $IP_DIR/$AWS_IP.$TXT
+cat $IP_DIR/$AWS_IP.$JS | jq -r '.prefixes[] | select(.service=="EC2") | .ip_prefix' | sed -e 's/"//g' > $IP_DIR/$AWS_IP.$TXT
 cat $IP_DIR/$GCP_IP.$JS |  jq '.prefixes [] | .ipv4Prefix' | sed -e 's/"//g' | grep -v null > $IP_DIR/$GCP_IP.$TXT
 
 if [ $TESTING -eq 1 ]; then
 
   cp $IP_DIR/$AWS_IP.$TXT /tmp/$AWS_IP.$TXT
-  head -1 /tmp/$AWS_IP.$TXT > $IP_DIR/$AWS_IP.$TXT
+  head -4 /tmp/$AWS_IP.$TXT > $IP_DIR/$AWS_IP.$TXT
   cp $IP_DIR/$GCP_IP.$TXT /tmp/$GCP_IP.$TXT
-  head -1 /tmp/$GCP_IP.$TXT > $IP_DIR/$GCP_IP.$TXT
+  head -4 /tmp/$GCP_IP.$TXT > $IP_DIR/$GCP_IP.$TXT
 
   wc -l $IP_DIR/$AWS_IP.$TXT
   wc -l $IP_DIR/$GCP_IP.$TXT
@@ -76,8 +76,8 @@ cat $IP_DIR/$SCAN_OUT | awk {'print $4'} | awk NF | sort -u > $IP_DIR/$SCAN_CLEA
 echo Performing TLS scans
 
 echo "[TLS] AWS"
-sslyze  --certinfo --json_out=tls_aws.json --targets_in=$IP_DIR/$SCAN_CLEAN_AWS --quiet
+sslyze  --certinfo --json_out=$IP_DIR/tls_aws.json --targets_in=$IP_DIR/$SCAN_CLEAN_AWS --quiet
 echo "[TLS] GCP"
-sslyze  --certinfo --json_out=tls_gcp.json --targets_in=$IP_DIR/$SCAN_CLEAN_GCP --quiet
+sslyze  --certinfo --json_out=$IP_DIR/tls_gcp.json --targets_in=$IP_DIR/$SCAN_CLEAN_GCP --quiet
 
-cat tls.json| jq -c '.server_scan_results[] |  select  (.network_configuration.tls_server_name_indication | contains ("193.99.144.80"))
+# cat tls.json| jq -c '.server_scan_results[] |  select  (.network_configuration.tls_server_name_indication | contains ("193.99.144.80"))
