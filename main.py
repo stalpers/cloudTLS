@@ -1,69 +1,101 @@
 import sys
 import json
 import argparse
+import datetime
 from database import model
-
+import coloredlogs, logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+logger = logging.getLogger("Cloud TLS")
+coloredlogs.install(level='DEBUG')
+coloredlogs.install(fmt='%(asctime)s [%(levelname)s] %(message)s', level='DEBUG')
 
+SQL_DEBUG=False
 
-engine = create_engine("sqlite:///cloud.db", echo=True)
+logger.info("Starting up")
+engine = create_engine("sqlite:///cloud.db", echo=SQL_DEBUG)
 
 model.Base.metadata.create_all(engine)
 
-def parse_sslyze(j):
-    print("Start parsing...")
-    for i in j['server_scan_results']:
+def parse_sslyze(j, csp):
+    run_date = datetime.datetime.utcnow()
 
 
-        with Session(engine) as session:
+    logger.info("Start parsing...")
+    with Session(engine) as session:
+
+        sc = model.ScanSession(
+            parse_date=run_date
+        )
+        session.add(sc)
+
+        for i in j['server_scan_results']:
+
             host = model.Host(
-                name=i['server_location']['hostname']
+                name=i['server_location']['hostname'],
+                ip=i['server_location']['ip_address'],
+                port = i['server_location']['port'],
+                cloud = csp,
+                scan_session = sc
             )
-        session.commit
-        session.close            
-        # original Hostname / IP
-        # print(i['server_location']['hostname'])
-        # print(i['server_location']['ip_address'])
-        # print(i['server_location']['port'])
+            session.add(host)
+            session.commit()
 
-       
+            if i['connectivity_status']=="COMPLETED":
 
-        if i['connectivity_status']=="COMPLETED":
-            print ('{h} - {ip}:{p}'.format(h=i['server_location']['hostname'], ip=i['server_location']['ip_address'], p=i['server_location']['port']))            
+                logger.info('{h} - {ip}:{p}'.format(h=i['server_location']['hostname'], ip=i['server_location']['ip_address'], p=i['server_location']['port']))
+                a=i['scan_result']['certificate_info']['result']['certificate_deployments'][0]
+                logger.debug('CN {cn}'.format(cn=a['received_certificate_chain'][0]['subject']['rfc4514_string']))
+                cert = model.Certificate(
+                    cn=a['received_certificate_chain'][0]['subject']['rfc4514_string'],
+                    host = host
+                )
+                # cert.host = host
+                # logger.debug('Host {h} for certificate {c}'.format(h=host, c=cert))
+                session.add(cert)
+                session.commit()
+                logger.debug("commit CERT")
 
-            # Subject Alternative names
-            # j_SAN = i['scan_result']['certificate_info']['result']['certificate_deployments'][0]['path_validation_results'][0]['verified_certificate_chain'][0]['subject_alternative_name']
+                for d in a['received_certificate_chain'][0]['subject_alternative_name']['dns_names']:
+                    san = model.SAN(
+                        type = "DNS",
+                        value = d
+                    )
+                    san.certificate = cert
+                    session.add(san)
+                    logger.info ('* {dns}'.format(dns=d))
+                for e in a['received_certificate_chain'][0]['subject_alternative_name']['ip_addresses']:
+                    logger.info ('*  {ip}'.format(ip=e))
+                logger.debug("COMMIT SAN")
+                session.commit()
 
-            for a in i['scan_result']['certificate_info']['result']['certificate_deployments']:
-                #for b in a ['path_validation_results']:
-                    for c in a['received_certificate_chain']: 
-                        for d in c['subject_alternative_name']['dns_names']:
-                            print ('*  {dns}'.format(dns=d))
-                        for e in c['subject_alternative_name']['ip_addresses']:
-                            print ('*  {ip}'.format(ip=e))
 
-            # print(j_SAN['ip_addresses'])
-
-
+            logger.debug("Final COMMIT")
+            session.commit()
+    logger.debug("Session Close")
+    session.close()
 
 if __name__ == "__main__":
     p_args = argparse.ArgumentParser(description='Cloud Security Scanner')
-    p_args.add_argument(metavar='filename.json', dest='in_file')
+    p_args.add_argument("--file", action="store", required=True)
+    p_args.add_argument("--cloud", choices=['AWS', 'GCP', 'Azure', 'OCI'], action="store", required=True)
+    p_args.add_argument("--drop_database", action="store_true")
+    p_args.add_argument("--init_database", action="store_true")
+    # p_args.add_argument(metavar='filename.json', dest='in_file')
     args = p_args.parse_args()
 
-    try:
-        d = json.loads(open(args.in_file, 'r').read())
-    except:
-        print("%s: error opening file %s" % (sys.argv[0], args.inf))
+
+    if args.drop_database:
+        logger.warning ('Dropping all tables & recreating a blank schema')
+        model.Base.metadata.drop_all(bind=engine)
+        model.Base.metadata.create_all(engine)
         sys.exit()
+    if args.init_database:
+        model.Base.metadata.create_all(engine)
 
-    parse_sslyze(d)
-
-    # subject_alternative_name
-    ### dns_names
-    ### ip_addresses
-
-    # verified_certificate_chain => subject => Attributes => value
-
-    # hostname_used_for_server_name_indication
+    try:
+        d = json.loads(open(args.file, 'r').read())
+    except:
+        logger.error("%s: error opening file %s" % (sys.argv[0], args.inf))
+        sys.exit()
+    parse_sslyze(d, args.cloud)
