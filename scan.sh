@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export TESTING=1
+export TESTING=0
 
 export IP_DIR=./data
 export TEST_DATA=./testing
