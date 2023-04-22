@@ -1,0 +1,9 @@
+{
+  "database": {
+    "url": "sqlite:///cloud.db",
+    "debug": "False"
+  },
+  "logging": {
+    "level": "DEBUG"
+  }
+}
