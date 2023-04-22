@@ -2,10 +2,42 @@ import sys
 import json
 import argparse
 import datetime
+import tls.processify
+import threading
+from pathlib import Path
+from queue import Queue
+import sslyze
+from sslyze import (
+    ScanCommand,
+    ServerConnectivityStatusEnum,
+    ServerScanStatusEnum,
+    ScanCommandAttemptStatusEnum,
+    ScanCommandsExtraArguments,
+    CertificateInfoExtraArgument,
+    ScanCommandErrorReasonEnum,
+)
+from sslyze.errors import TlsHandshakeTimedOut
+from sslyze.plugins.plugin_base import (
+    ScanCommandImplementation,
+    ScanCommandExtraArgument,
+    ScanJob,
+    ScanCommandResult,
+    ScanJobResult,
+)
+from sslyze.plugins.scan_commands import ScanCommandsRepository
+from sslyze.scanner._mass_scanner import MassScannerProducerThread, NoMoreServerScanRequestsSentinel
+from sslyze.server_connectivity import ServerConnectivityInfo
+from sslyze import ServerScanRequest, ServerTlsProbingResult, ServerNetworkLocation
+
+
 from database import model
 import coloredlogs, logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+import tqdm
+
+
+
 logger = logging.getLogger("Cloud TLS")
 coloredlogs.install(level='DEBUG')
 coloredlogs.install(fmt='%(asctime)s [%(levelname)s] %(message)s', level='DEBUG')
@@ -17,11 +49,67 @@ engine = create_engine("sqlite:///cloud.db", echo=SQL_DEBUG)
 
 model.Base.metadata.create_all(engine)
 
+def checkKey(dic, key):
+    if key in dic.keys():
+        print("Present, ", end =" ")
+        print("value =", dic[key])
+    else:
+        print("Not present")
+def parse_tslscan(j, csp):
+    run_date = datetime.datetime.utcnow()
+    logger.info("Start parsing tls-scan...")
+    with Session(engine) as session:
+
+        sc = model.ScanSession(
+            parse_date=run_date
+        )
+        session.add(sc)
+
+        for i in j:
+            logger.info('Importing {h}'.format(h=i['host']))
+            host = model.Host(
+                name=i['host'],
+                ip=i['ip'],
+                port = i['port'],
+                cloud = csp,
+                scan_session = sc
+            )
+            session.add(host)
+            session.commit()
+            if 'subjectCN' in i['certificateChain'][0].keys():
+                subject = i['certificateChain'][0]['subjectCN']
+            else:
+                subject = 'N/A'
+            logger.debug('Subject: {s}'.format(s=subject))
+            cert = model.Certificate(
+                cn=subject,
+                host=host
+            )
+            # logger.debug('Host {h} for certificate {c}'.format(h=host, c=cert))
+            session.add(cert)
+            session.commit()
+            #SAN
+            if 'subjectAltName' in i['certificateChain'][0].keys() :
+                s_san = i['certificateChain'][0]['subjectAltName']
+                san_list = s_san.split(", ")
+                for san in san_list:
+                    logger.debug('SAN: {s}'.format(s=san))
+                    (t,s) = san.split(":")
+                    san = model.SAN(
+                        type=t,
+                        value=s
+                    )
+                    san.certificate = cert
+                    session.add(san)
+                session.commit()
+        session.commit()
+
+
+
 def parse_sslyze(j, csp):
     run_date = datetime.datetime.utcnow()
 
-
-    logger.info("Start parsing...")
+    logger.info("Start parsing SSLYZE...")
     with Session(engine) as session:
 
         sc = model.ScanSession(
@@ -98,4 +186,6 @@ if __name__ == "__main__":
     except:
         logger.error("%s: error opening file %s" % (sys.argv[0], args.inf))
         sys.exit()
-    parse_sslyze(d, args.cloud)
+
+    # parse_sslyze(d, args.cloud)
+    parse_tslscan(d, args.cloud)
