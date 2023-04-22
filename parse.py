@@ -7,15 +7,17 @@ import coloredlogs, logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from utils.config_helper import ConfigHelper
+import psycopg2
 
 logger = logging.getLogger("Cloud TLS")
 coloredlogs.install(fmt='%(asctime)s [%(levelname)s] %(message)s', level='DEBUG')
 
 try:
     conf = json.loads(open("config.json", 'r').read())
-except:
-    logger.error("Error opening config file")
+except Exception as e:
+    logger.error("Error opening config file: {e}".format(e=e))
     sys.exit()
+
 ch = ConfigHelper()
 SQL_DEBUG= ch.is_true(conf['database']['debug'])
 
@@ -63,7 +65,7 @@ def parse_tslscan(j, csp):
                         type=t,
                         value=s
                     )
-                    san.certificate = cert
+                    san.host = host
                     session.add(san)
                 session.commit()
         session.commit()
@@ -140,5 +142,4 @@ if __name__ == "__main__":
         logger.error("%s: error opening file %s" % (sys.argv[0], args.inf))
         sys.exit()
 
-    # parse_sslyze(d, args.cloud)
     parse_tslscan(d, args.cloud)

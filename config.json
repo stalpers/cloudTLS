@@ -1,6 +1,7 @@
 {
   "database": {
-    "url": "sqlite:///cloud.db",
+    "url_bak": "sqlite:///cloud.db",
+    "url": "postgresql+psycopg2://cloud_tls:CloudTLS2023!@localhost:5432/cloudtls",
     "debug": "False"
   },
   "logging": {
