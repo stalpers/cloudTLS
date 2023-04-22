@@ -39,3 +39,8 @@ include/
 cloud.db
 pyvenv.cfg
 tls_gcp.json
+tls_aws.json
+tls-scan*
+test*
+new.json
+x.json
