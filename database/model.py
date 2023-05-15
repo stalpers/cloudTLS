@@ -1,14 +1,23 @@
 from typing import List
 from typing import Optional
 from sqlalchemy import ForeignKey
-from sqlalchemy import String, Integer, DateTime
+from sqlalchemy import String, Integer, DateTime, LargeBinary
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
+
 import datetime
 class Base(DeclarativeBase):
     pass
+
+class User(Base):
+    __tablename__ = 'User'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(unique=True)
+    email: Mapped[str] = mapped_column(unique=True)
+    password: Mapped[bool] = mapped_column(LargeBinary)
+
 
 class ScanSession(Base):
     __tablename__ = "scan_session"
@@ -44,7 +53,7 @@ class Host(Base):
     ip: Mapped[str] = mapped_column(String(30))
     port: Mapped[int] = mapped_column(Integer)
     # parse_date: Mapped[DateTime] = mapped_column(DateTime(30))
-    name: Mapped[Optional[str]]
+    name: Mapped[str]
     cloud: Mapped[str] = mapped_column(String(30))
     certificate: Mapped["Certificate"] = relationship(back_populates="host")
     SAN: Mapped[List["SAN"]] = relationship(

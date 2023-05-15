@@ -134,12 +134,20 @@ if __name__ == "__main__":
         model.Base.metadata.create_all(engine)
         sys.exit()
     if args.init_database:
+        logger.info('Initializing database')
         model.Base.metadata.create_all(engine)
-
+        u = model.User(username="admin", email="admin@admin.local", password=ch.hash_pass("password"))
+        with Session(engine) as session:
+            session.add(u)
+            session.commit()
+            session.close()
+        logger.info('Done - please re-run to import')
+        sys.exit()
     try:
         d = json.loads(open(args.file, 'r').read())
     except:
         logger.error("%s: error opening file %s" % (sys.argv[0], args.inf))
         sys.exit()
+        quit()
 
     parse_tslscan(d, args.cloud)
