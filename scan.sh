@@ -5,10 +5,11 @@
 export TESTING=1
 
 
-export TEST_SIZE_AWS=15
-export TEST_SIZE_GCP=15
+export TEST_SIZE_AWS=50
+export TEST_SIZE_GCP=50
 
 export CONCUR=5
+export SPLITSIZE=50
 
 export TMP=./tmp
 export LOG=$TMP/logfile.log
@@ -63,7 +64,7 @@ echo -e "====${RED}======${NC}${YELLOW}====${NC}${PURPLE}========${NC}====="
 echo
 echo
 
-log_error "test" $TLS_OUT
+# log_error "test" $TLS_OUT
 echo -e -n "${YELLOW}[INFO] $(timestamp)${NC} Checking requirements - "
 echo -n "#"
 
@@ -142,7 +143,7 @@ export GCP_COUNT=`cat $IP_DIR/$SCAN_CLEAN_GCP | wc -l`
 echo -e "${YELLOW}[TLS]${NC} scanning $AWS_COUNT AWS IP addresses"
 echo -e "${YELLOW}[TLS]${NC} Splitting up into multiple files for performance & convenience"
 cp $IP_DIR/$SCAN_CLEAN_AWS $TMP_AWS/aws.json
-split $TMP_AWS/aws.json -l 20 $TMP_AWS/AWS_
+split $TMP_AWS/aws.json -l $SPLITSIZE $TMP_AWS/AWS_
 rm $TMP_AWS/aws.json
 
 export TSTAMP=$(timestamp_dir)
@@ -190,5 +191,10 @@ do
   fi
 done
 
-
-# tls-scan --infile $IP_DIR/$SCAN_CLEAN_GCP -o tls-scan_gcp.json -b $CONCUR --cacert $IP_DIR/ca-bundle.crt --stats-outfile $TMP/tls-status-gcp.txt  2>/dev/null
+log_info "Creating $IP_DIR/tls-scan-$TSTAMP.json" $LOG
+cat $TLS_OUT/$TSTAMP/AWS_* > $IP_DIR/tls-aws-$TSTAMP.tmp
+python format_tls_scan.py --file $IP_DIR/tls-aws-$TSTAMP.tmp --out $IP_DIR/tls-aws-$TSTAMP.json
+cat $TLS_OUT/$TSTAMP/GCP_* > $IP_DIR/tls-gcp-$TSTAMP.tmp
+python format_tls_scan.py --file $IP_DIR/tls-gcp-$TSTAMP.tmp --out $IP_DIR/tls-gcp-$TSTAMP.json
+rm $IP_DIR/tls-aws-$TSTAMP.tmp
+rm $IP_DIR/tls-gcp-$TSTAMP.tmp
