@@ -45,3 +45,4 @@ test*
 new.json
 x.json
 /tmp/
+/aws-full.json
