@@ -8,7 +8,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from utils.config_helper import ConfigHelper
 import psycopg2
+import os.path
 
+ERROR=2
+OK=1
 logger = logging.getLogger("Cloud TLS")
 coloredlogs.install(fmt='%(asctime)s [%(levelname)s] %(message)s', level='DEBUG')
 
@@ -59,8 +62,12 @@ def parse_tslscan(j, csp):
                 s_san = i['certificateChain'][0]['subjectAltName']
                 san_list = s_san.split(", ")
                 for san in san_list:
-                    logger.debug('SAN: {s}'.format(s=san))
-                    (t,s) = san.split(":")
+
+                    # (t,s) = san.split(":")
+                    sn = san.split(":")
+                    t = sn[0]
+                    s = ":".join(sn[1:])
+                    logger.debug('SAN: {t}:{v}'.format(t=t, v=s))
                     san = model.SAN(
                         type=t,
                         value=s
@@ -126,6 +133,7 @@ if __name__ == "__main__":
     p_args.add_argument("--cloud", choices=['AWS', 'GCP', 'Azure', 'OCI'], action="store", required=True)
     p_args.add_argument("--drop_database", action="store_true")
     p_args.add_argument("--init_database", action="store_true")
+    p_args.add_argument("--verify", action="store_true")
     args = p_args.parse_args()
 
     if args.drop_database:
@@ -143,11 +151,65 @@ if __name__ == "__main__":
             session.close()
         logger.info('Done - please re-run to import')
         sys.exit()
-    try:
-        d = json.loads(open(args.file, 'r').read())
-    except:
-        logger.error("%s: error opening file %s" % (sys.argv[0], args.inf))
-        sys.exit()
-        quit()
+    if args.verify:
+        logger.info('Verifying file structure')
+        if os.path.isfile(args.file):
+            try:
+                j= json.loads(open(args.file, 'r').read())
+            except:
+                logger.error("%s: error opening json %s" % (sys.argv[0], args.inf))
+                sys.exit(ERROR)
+            CN_FOUND = True
+            cn_err_line = 0
+            cn_line = 0
+            DNS_FOUND = True
+            dns_err_line = 0
+            dns_line = 0
+            for i in j:
+                dns_line = dns_line +1
+                cn_line = cn_line +1
+                try:
+                    if 'subjectCN' in i['certificateChain'][0].keys():
+                        t = 1
+                    else:
+                        CN_FOUND=False
+                        cn_err_line = cn_line
+                except:
+                    CN_FOUND = False
+                    cn_err_line = cn_line
 
-    parse_tslscan(d, args.cloud)
+                try:
+                    a = i['scan_result']['certificate_info']['result']['certificate_deployments'][0]
+                    for d in a['received_certificate_chain'][0]['subject_alternative_name']['dns_names']:
+                        t = d
+                except:
+                    DNS_FOUND = False
+                    dns_err_line = dns_line
+
+
+            if CN_FOUND:
+                logger.info("CN Field found")
+            else:
+                logger.error('ERROR parsing CN fields at {e}'.format(e=cn_err_line))
+
+            if DNS_FOUND:
+                logger.info("SAN DNS Field found")
+            else:
+                logger.error('ERROR parsing SAN DNS fields at {e}'.format(e=dns_err_line))
+
+        else:
+            logger.error("Error opening file %s" % (args.file))
+            sys.exit(ERROR)
+        logger.info('PASSED - file structure looks good')
+        sys.exit(OK)
+
+
+    else:
+        try:
+            d = json.loads(open(args.file, 'r').read())
+        except:
+            logger.error("%s: error opening file %s" % (sys.argv[0], args.inf))
+            sys.exit(ERROR)
+            quit(ERROR)
+
+        parse_tslscan(d, args.cloud)
