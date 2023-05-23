@@ -7,13 +7,14 @@ import coloredlogs, logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from utils.config_helper import ConfigHelper
+from progress.bar import Bar
 import psycopg2
 import os.path
 
 ERROR=2
 OK=1
 logger = logging.getLogger("Cloud TLS")
-coloredlogs.install(fmt='%(asctime)s [%(levelname)s] %(message)s', level='DEBUG')
+coloredlogs.install(fmt='%(asctime)s [%(levelname)s] %(message)s', level='ERROR')
 
 try:
     conf = json.loads(open("config.json", 'r').read())
@@ -77,63 +78,73 @@ def parse_tslscan(j, csp):
                 session.commit()
         session.commit()
 
-def parse_sslyze(j, csp):
-    run_date = datetime.datetime.utcnow()
+def parse_tslscan_new(f, timestamp):
+    run_date = timestamp
+    file = open(f, 'r')
 
-    logger.info("Start parsing SSLYZE...")
+    logger.info('Parsing {f}'.format(f=f.name))
+    (csp, num) = os.path.basename(file.name).split('_')
     with Session(engine) as session:
         sc = model.ScanSession(
             parse_date=run_date
         )
         session.add(sc)
-        for i in j['server_scan_results']:
+
+        for line in file:
+            i = json.loads(line)
+
+
+
+            logger.info('Importing {h} on {c}'.format(h=i['host'], c=csp))
             host = model.Host(
-                name=i['server_location']['hostname'],
-                ip=i['server_location']['ip_address'],
-                port = i['server_location']['port'],
+                name=i['host'],
+                ip=i['ip'],
+                port = i['port'],
                 cloud = csp,
                 scan_session = sc
             )
             session.add(host)
             session.commit()
-            if i['connectivity_status']=="COMPLETED":
-                logger.info('{h} - {ip}:{p}'.format(h=i['server_location']['hostname'], ip=i['server_location']['ip_address'], p=i['server_location']['port']))
-                a=i['scan_result']['certificate_info']['result']['certificate_deployments'][0]
-                logger.debug('CN {cn}'.format(cn=a['received_certificate_chain'][0]['subject']['rfc4514_string']))
-                cert = model.Certificate(
-                    cn=a['received_certificate_chain'][0]['subject']['rfc4514_string'],
-                    host = host
-                )
-                # cert.host = host
-                # logger.debug('Host {h} for certificate {c}'.format(h=host, c=cert))
-                session.add(cert)
-                session.commit()
-                logger.debug("commit CERT")
-
-                for d in a['received_certificate_chain'][0]['subject_alternative_name']['dns_names']:
-                    san = model.SAN(
-                        type = "DNS",
-                        value = d
-                    )
-                    san.certificate = cert
-                    session.add(san)
-                    logger.info ('* {dns}'.format(dns=d))
-                for e in a['received_certificate_chain'][0]['subject_alternative_name']['ip_addresses']:
-                    logger.info ('*  {ip}'.format(ip=e))
-                logger.debug("COMMIT SAN")
-                session.commit()
-            logger.debug("Final COMMIT")
+            if 'subjectCN' in i['certificateChain'][0].keys():
+                subject = i['certificateChain'][0]['subjectCN']
+            else:
+                subject = 'N/A'
+            logger.debug('Subject: {s}'.format(s=subject))
+            cert = model.Certificate(
+                cn=subject,
+                host=host
+            )
+            session.add(cert)
             session.commit()
-    logger.debug("Session Close")
-    session.close()
+            if 'subjectAltName' in i['certificateChain'][0].keys() :
+                s_san = i['certificateChain'][0]['subjectAltName']
+                san_list = s_san.split(", ")
+                for san in san_list:
+
+                    # (t,s) = san.split(":")
+                    sn = san.split(":")
+                    t = sn[0]
+                    s = ":".join(sn[1:])
+                    logger.debug('SAN: {t}:{v}'.format(t=t, v=s))
+                    san = model.SAN(
+                        type=t,
+                        value=s
+                    )
+                    san.host = host
+                    session.add(san)
+                session.commit()
+
+        session.commit()
+
 
 if __name__ == "__main__":
     p_args = argparse.ArgumentParser(description='Cloud Security Scanner')
-    p_args.add_argument("--file", action="store", required=True)
-    p_args.add_argument("--cloud", choices=['AWS', 'GCP', 'Azure', 'OCI'], action="store", required=True)
+    p_args.add_argument("--json_dir", action="store", required=True)
+    p_args.add_argument("--cloud", choices=['AWS', 'GCP', 'Azure', 'OCI'], action="store", required=False)
     p_args.add_argument("--drop_database", action="store_true")
     p_args.add_argument("--init_database", action="store_true")
     p_args.add_argument("--verify", action="store_true")
+    p_args.add_argument("--debug", action="store_true")
     args = p_args.parse_args()
 
     if args.drop_database:
@@ -151,6 +162,10 @@ if __name__ == "__main__":
             session.close()
         logger.info('Done - please re-run to import')
         sys.exit()
+    if args.debug:
+        #change logging to DEBUG
+        coloredlogs.install(fmt='%(asctime)s [%(levelname)s] %(message)s', level='DEBUG')
+        logger.info("Changing logging level to DEBUG")
     if args.verify:
         logger.info('Verifying file structure')
         if os.path.isfile(args.file):
@@ -205,6 +220,25 @@ if __name__ == "__main__":
 
 
     else:
+
+        timestamp = datetime.datetime.utcnow()
+
+        file_count = 0
+        for path in os.scandir(args.json_dir):
+            if os.path.isfile(path):
+                file_count += 1
+
+
+        bar = Bar('Importing', max=file_count)
+        for filename in os.scandir(args.json_dir):
+            if not filename.name.startswith('.') and filename.is_file():
+                    parse_tslscan_new(filename, timestamp)
+                    bar.next()
+            else:
+                logger.debug('Skip {f} for cloud {d}'.format(f=filename.name, d=args.cloud))
+        bar.finish()
+
+"""
         try:
             d = json.loads(open(args.file, 'r').read())
         except:
@@ -213,3 +247,4 @@ if __name__ == "__main__":
             quit(ERROR)
 
         parse_tslscan(d, args.cloud)
+"""
